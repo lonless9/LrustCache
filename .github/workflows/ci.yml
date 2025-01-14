@@ -10,18 +10,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test
+  setup:
+    name: Setup Dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-          
-      - name: Install Dependencies
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libleveldb-dev libsnappy-dev
@@ -31,6 +26,11 @@ jobs:
         with:
           xmake-version: latest
           
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          
       - name: Cache Dependencies
         uses: actions/cache@v3
         with:
@@ -39,15 +39,28 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          
-      - name: Run Benchmarks
-        run: |
-          cargo build --release
-          cargo bench
-          cd cpp_bench
-          xmake
-          ./run_bench.sh
+
+  build:
+    name: Build and Test
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
       
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          
+      - name: Restore Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          
       - name: Check Format
         run: cargo fmt -- --check
         
@@ -57,6 +70,14 @@ jobs:
       - name: Run Tests
         run: cargo test
         
+      - name: Run Benchmarks
+        run: |
+          cargo build --release
+          cargo bench
+          cd cpp_bench
+          xmake
+          ./run_bench.sh
+          
       - name: Run Coverage
         run: |
           cargo install cargo-tarpaulin
