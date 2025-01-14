@@ -8,7 +8,7 @@ use std::ptr::NonNull;
 #[doc(hidden)]
 pub(crate) mod private {
     use super::*;
-    
+
     #[allow(dead_code)]
     pub(crate) trait Cache<K, V>: Send + Sync
     where
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn test_basic_operations() {
         let cache = BasicLruCache::new(2);
-        
+
         // Test empty cache
         assert!(cache.is_empty());
         assert_eq!(cache.len(), 0);
