@@ -5,76 +5,28 @@ use std::hash::Hash;
 use std::mem;
 use std::ptr::NonNull;
 
-/// The core trait that defines the behavior of a cache implementation.
-///
-/// This trait provides the basic operations that any cache implementation
-/// must support, including get, put, remove, and various utility methods.
-///
-/// # Type Parameters
-///
-/// * `K` - The type of keys used in the cache. Must implement `Clone + Debug + Hash + Eq + Send + Sync + 'static`
-/// * `V` - The type of values stored in the cache. Must implement `Clone + Debug + Send + Sync + 'static`
-pub trait Cache<K, V>: Send + Sync
-where
-    K: Clone + Debug + Hash + Eq + Send + Sync + 'static,
-    V: Clone + Debug + Send + Sync + 'static,
-{
-    /// Retrieves a value from the cache by its key.
-    ///
-    /// If the key exists, the value is cloned and returned, and the entry
-    /// is marked as most recently used.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to look up
-    ///
-    /// # Returns
-    ///
-    /// * `Some(V)` if the key exists
-    /// * `None` if the key doesn't exist
-    fn get(&self, key: &K) -> Option<V>;
-
-    /// Inserts a key-value pair into the cache.
-    ///
-    /// If the key already exists, the value is updated and the old value
-    /// is returned. If the cache is at capacity, the least recently used
-    /// entry is removed to make space.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to insert
-    /// * `value` - The value to insert
-    ///
-    /// # Returns
-    ///
-    /// * `Some(V)` if the key already existed (returns the old value)
-    /// * `None` if the key didn't exist
-    fn put(&self, key: K, value: V) -> Option<V>;
-
-    /// Removes an entry from the cache by its key.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to remove
-    ///
-    /// # Returns
-    ///
-    /// * `Some(V)` if the key existed (returns the removed value)
-    /// * `None` if the key didn't exist
-    fn remove(&self, key: &K) -> Option<V>;
-
-    /// Returns the number of entries in the cache.
-    fn len(&self) -> usize;
-
-    /// Returns true if the cache is empty.
+#[doc(hidden)]
+pub(crate) mod private {
+    use super::*;
+    
     #[allow(dead_code)]
-    fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub(crate) trait Cache<K, V>: Send + Sync
+    where
+        K: Clone + Debug + Hash + Eq + Send + Sync + 'static,
+        V: Clone + Debug + Send + Sync + 'static,
+    {
+        fn get(&self, key: &K) -> Option<V>;
+        fn put(&self, key: K, value: V) -> Option<V>;
+        fn remove(&self, key: &K) -> Option<V>;
+        fn len(&self) -> usize;
+        fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+        fn clear(&self);
     }
-
-    /// Removes all entries from the cache.
-    fn clear(&self);
 }
+
+use private::Cache;
 
 // Internal node structure for the doubly linked list
 struct Node<K, V> {
@@ -202,7 +154,7 @@ impl<K, V> DoublyLinkedList<K, V> {
 /// # Examples
 ///
 /// ```rust
-/// use lrust_cache::{Cache, BasicLruCache};
+/// use lrust_cache::BasicLruCache;
 ///
 /// let cache = BasicLruCache::new(2);
 /// cache.put("key1".to_string(), "value1".to_string());
@@ -250,14 +202,21 @@ where
     pub fn capacity(&self) -> usize {
         self.cap
     }
-}
 
-impl<K, V> Cache<K, V> for BasicLruCache<K, V>
-where
-    K: Clone + Debug + Hash + Eq + Send + Sync + 'static,
-    V: Clone + Debug + Send + Sync + 'static,
-{
-    fn get(&self, key: &K) -> Option<V> {
+    /// Retrieves a value from the cache by its key.
+    ///
+    /// If the key exists, the value is cloned and returned, and the entry
+    /// is marked as most recently used.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to look up
+    ///
+    /// # Returns
+    ///
+    /// * `Some(V)` if the key exists
+    /// * `None` if the key doesn't exist
+    pub fn get(&self, key: &K) -> Option<V> {
         unsafe {
             let map = &mut *self.map.get();
             if let Some(entry) = map.get(key) {
@@ -272,7 +231,22 @@ where
         }
     }
 
-    fn put(&self, key: K, value: V) -> Option<V> {
+    /// Inserts a key-value pair into the cache.
+    ///
+    /// If the key already exists, the value is updated and the old value
+    /// is returned. If the cache is at capacity, the least recently used
+    /// entry is removed to make space.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to insert
+    /// * `value` - The value to insert
+    ///
+    /// # Returns
+    ///
+    /// * `Some(V)` if the key already existed (returns the old value)
+    /// * `None` if the key didn't exist
+    pub fn put(&self, key: K, value: V) -> Option<V> {
         unsafe {
             let map = &mut *self.map.get();
 
@@ -307,31 +281,44 @@ where
         }
     }
 
-    fn remove(&self, key: &K) -> Option<V> {
+    /// Removes an entry from the cache by its key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to remove
+    ///
+    /// # Returns
+    ///
+    /// * `Some(V)` if the key existed (returns the removed value)
+    /// * `None` if the key didn't exist
+    pub fn remove(&self, key: &K) -> Option<V> {
         unsafe {
             let map = &mut *self.map.get();
-            if let Some(node_ptr) = map.remove(key) {
-                let node_ptr = node_ptr.as_ptr();
-                // Remove from list
-                (*self.list.get()).remove(node_ptr);
-                // Get value and free node
-                let node = Box::from_raw(node_ptr);
-                Some(node.value)
+            if let Some(entry) = map.remove(key) {
+                let node_ptr = entry.as_ptr();
+                let list = &mut *self.list.get();
+                list.remove(node_ptr);
+                let value = (*node_ptr).value.clone();
+                drop(Box::from_raw(node_ptr));
+                Some(value)
             } else {
                 None
             }
         }
     }
 
-    fn len(&self) -> usize {
-        unsafe { (*self.map.get()).len() }
+    /// Returns the number of entries in the cache.
+    pub fn len(&self) -> usize {
+        unsafe { (*self.list.get()).len }
     }
 
-    fn is_empty(&self) -> bool {
-        unsafe { (*self.map.get()).is_empty() }
+    /// Returns true if the cache is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
-    fn clear(&self) {
+    /// Removes all entries from the cache.
+    pub fn clear(&self) {
         unsafe {
             let map = &mut *self.map.get();
             let list = &mut *self.list.get();
@@ -348,6 +335,36 @@ where
             list.len = 0;
             map.clear();
         }
+    }
+}
+
+impl<K, V> Cache<K, V> for BasicLruCache<K, V>
+where
+    K: Clone + Debug + Hash + Eq + Send + Sync + 'static,
+    V: Clone + Debug + Send + Sync + 'static,
+{
+    fn get(&self, key: &K) -> Option<V> {
+        self.get(key)
+    }
+
+    fn put(&self, key: K, value: V) -> Option<V> {
+        self.put(key, value)
+    }
+
+    fn remove(&self, key: &K) -> Option<V> {
+        self.remove(key)
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn clear(&self) {
+        self.clear()
     }
 }
 
@@ -376,9 +393,17 @@ mod tests {
     #[test]
     fn test_basic_operations() {
         let cache = BasicLruCache::new(2);
+        
+        // Test empty cache
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
 
         assert_eq!(cache.put("key1".to_string(), "one".to_string()), None);
         assert_eq!(cache.put("key2".to_string(), "two".to_string()), None);
+
+        // Test non-empty cache
+        assert!(!cache.is_empty());
+        assert_eq!(cache.len(), 2);
 
         assert_eq!(cache.get(&"key1".to_string()), Some("one".to_string()));
         assert_eq!(cache.get(&"key2".to_string()), Some("two".to_string()));
@@ -409,12 +434,18 @@ mod tests {
     fn test_clear() {
         let cache = BasicLruCache::new(2);
 
+        // Test initial state
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+
         cache.put("key1".to_string(), "one".to_string());
         cache.put("key2".to_string(), "two".to_string());
         assert_eq!(cache.len(), 2);
+        assert!(!cache.is_empty());
 
         cache.clear();
         assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
         assert_eq!(cache.get(&"key1".to_string()), None);
         assert_eq!(cache.get(&"key2".to_string()), None);
     }

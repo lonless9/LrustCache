@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, PlotConfiguration};
-use lrust_cache::{Cache, ShardedLruCache};
+use lrust_cache::ShardedLruCache;
 use moka::sync::Cache as MokaCache;
 use rand::Rng;
 use std::sync::Arc;

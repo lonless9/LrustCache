@@ -1,5 +1,4 @@
 #![allow(unused_imports)]
-use crate::basic_lru_cache::Cache;
 use crate::ShardedLruCache;
 use std::ffi::{c_void, CStr, CString};
 use std::fmt;

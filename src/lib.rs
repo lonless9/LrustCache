@@ -17,7 +17,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use lrust_cache::{Cache, BasicLruCache, ShardedLruCache};
+//! use lrust_cache::{BasicLruCache, ShardedLruCache};
 //!
 //! // Create a basic LRU cache for storing strings with string keys
 //! let basic_cache: BasicLruCache<String, String> = BasicLruCache::new(1000);
@@ -35,5 +35,5 @@ pub mod basic_lru_cache;
 mod ffi;
 pub mod sharded_lru_cache;
 
-pub use basic_lru_cache::{BasicLruCache, Cache};
+pub use basic_lru_cache::BasicLruCache;
 pub use sharded_lru_cache::ShardedLruCache;

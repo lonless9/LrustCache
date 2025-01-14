@@ -1,4 +1,5 @@
-use super::{BasicLruCache, Cache};
+use super::basic_lru_cache::private::Cache;
+use super::BasicLruCache;
 use parking_lot::Mutex;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
@@ -8,7 +9,7 @@ use std::ops::Deref;
 // Minimum capacity per shard
 const MIN_SHARD_CAPACITY: usize = 4;
 // Maximum number of shards, must be a power of 2
-const MAX_SHARDS: usize = 64;
+const MAX_SHARDS: usize = 16;
 
 /// A sharded LRU cache implementation for high-concurrency scenarios.
 ///
@@ -24,7 +25,7 @@ const MAX_SHARDS: usize = 64;
 /// # Examples
 ///
 /// ```rust
-/// use lrust_cache::{Cache, ShardedLruCache};
+/// use lrust_cache::ShardedLruCache;
 ///
 /// let cache = ShardedLruCache::new(1000);
 /// cache.put("key1".to_string(), "value1".to_string());
@@ -112,6 +113,85 @@ where
         let hash = hasher.finish();
         (hash as usize) & (self.num_shards - 1)
     }
+
+    /// Retrieves a value from the cache by its key.
+    ///
+    /// If the key exists, the value is cloned and returned, and the entry
+    /// is marked as most recently used.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to look up
+    ///
+    /// # Returns
+    ///
+    /// * `Some(V)` if the key exists
+    /// * `None` if the key doesn't exist
+    pub fn get(&self, key: &K) -> Option<V> {
+        let shard_idx = self.get_shard_index(key);
+        let shard = self.shards[shard_idx].lock();
+        shard.deref().get(key)
+    }
+
+    /// Inserts a key-value pair into the cache.
+    ///
+    /// If the key already exists, the value is updated and the old value
+    /// is returned. If the cache is at capacity, the least recently used
+    /// entry is removed to make space.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to insert
+    /// * `value` - The value to insert
+    ///
+    /// # Returns
+    ///
+    /// * `Some(V)` if the key already existed (returns the old value)
+    /// * `None` if the key didn't exist
+    pub fn put(&self, key: K, value: V) -> Option<V> {
+        let shard_idx = self.get_shard_index(&key);
+        let shard = self.shards[shard_idx].lock();
+        shard.deref().put(key, value)
+    }
+
+    /// Removes an entry from the cache by its key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to remove
+    ///
+    /// # Returns
+    ///
+    /// * `Some(V)` if the key existed (returns the removed value)
+    /// * `None` if the key didn't exist
+    pub fn remove(&self, key: &K) -> Option<V> {
+        let shard_idx = self.get_shard_index(key);
+        let shard = self.shards[shard_idx].lock();
+        shard.deref().remove(key)
+    }
+
+    /// Returns the number of entries in the cache.
+    pub fn len(&self) -> usize {
+        self.shards
+            .iter()
+            .map(|shard| shard.lock().deref().len())
+            .sum()
+    }
+
+    /// Returns true if the cache is empty.
+    pub fn is_empty(&self) -> bool {
+        self.shards
+            .iter()
+            .all(|shard| shard.lock().deref().is_empty())
+    }
+
+    /// Removes all entries from the cache.
+    pub fn clear(&self) {
+        for shard in &self.shards {
+            let shard = shard.lock();
+            shard.deref().clear();
+        }
+    }
 }
 
 impl<K, V> Cache<K, V> for ShardedLruCache<K, V>
@@ -120,41 +200,27 @@ where
     V: Clone + Debug + Send + Sync + 'static,
 {
     fn get(&self, key: &K) -> Option<V> {
-        let shard_idx = self.get_shard_index(key);
-        let shard = self.shards[shard_idx].lock();
-        shard.deref().get(key)
+        self.get(key)
     }
 
     fn put(&self, key: K, value: V) -> Option<V> {
-        let shard_idx = self.get_shard_index(&key);
-        let shard = self.shards[shard_idx].lock();
-        shard.deref().put(key, value)
+        self.put(key, value)
     }
 
     fn remove(&self, key: &K) -> Option<V> {
-        let shard_idx = self.get_shard_index(key);
-        let shard = self.shards[shard_idx].lock();
-        shard.deref().remove(key)
+        self.remove(key)
     }
 
     fn len(&self) -> usize {
-        self.shards
-            .iter()
-            .map(|shard| shard.lock().deref().len())
-            .sum()
+        self.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.shards
-            .iter()
-            .all(|shard| shard.lock().deref().is_empty())
+        self.is_empty()
     }
 
     fn clear(&self) {
-        for shard in &self.shards {
-            let shard = shard.lock();
-            shard.deref().clear();
-        }
+        self.clear()
     }
 }
 
@@ -172,8 +238,16 @@ mod tests {
     fn test_basic_operations() {
         let cache = ShardedLruCache::new(2);
 
+        // Test empty cache
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+
         assert_eq!(cache.put("key1".to_string(), "one".to_string()), None);
         assert_eq!(cache.put("key2".to_string(), "two".to_string()), None);
+
+        // Test non-empty cache
+        assert!(!cache.is_empty());
+        assert_eq!(cache.len(), 2);
 
         assert_eq!(cache.get(&"key1".to_string()), Some("one".to_string()));
         assert_eq!(cache.get(&"key2".to_string()), Some("two".to_string()));

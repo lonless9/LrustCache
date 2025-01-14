@@ -1,7 +1,0 @@
-.codecov.yml
-
-coverage:
-  ignore:
-    - "benches/*"
-    - "cpp_bench/*"
-    - "src/ffi.rs"

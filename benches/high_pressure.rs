@@ -1,6 +1,8 @@
-use lrust_cache::{Cache, ShardedLruCache};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use lrust_cache::ShardedLruCache;
+use criterion::{criterion_group, criterion_main, Criterion};
+use rand::Rng;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Instant;
 
