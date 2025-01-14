@@ -1,0 +1,34 @@
+[package]
+name = "lrust_cache"
+version = "0.1.0"
+edition = "2021"
+authors = ["lonless <brightshannon@163.com>"]
+description = "A high-performance LRU cache implementation in Rust"
+license = "MIT"
+repository = "https://github.com/lonless9/LrustCache"
+documentation = "https://docs.rs/lrust_cache"
+readme = "README.md"
+keywords = ["cache", "lru", "performance", "concurrent", "sharding"]
+categories = ["caching", "concurrency", "data-structures"]
+
+# Add dynamic library support
+[lib]
+name = "lrust_cache"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+parking_lot = "0.12"
+
+[dev-dependencies]
+criterion = "0.5"
+moka = { version = "0.12", features = ["sync"] }
+rand = "0.8"
+
+# [[bench]]
+# name = "_concurrent_bench"
+# harness = false
+
+[[bench]]
+name = "high_pressure"
+harness = false
+

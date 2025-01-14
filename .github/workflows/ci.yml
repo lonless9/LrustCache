@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libleveldb-dev libsnappy-dev
+          
+      - name: Install xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+          
+      - name: Cache Dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          
+      - name: Run Benchmarks
+        run: |
+          cargo build --release
+          cargo bench
+          cd cpp_bench
+          xmake
+          ./run_bench.sh
+      
+      - name: Check Format
+        run: cargo fmt -- --check
+        
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+        
+      - name: Run Tests
+        run: cargo test
+        
+      - name: Run Coverage
+        run: |
+          cargo install cargo-tarpaulin
+          cargo tarpaulin --out xml --exclude-files "benches/*" "cpp_bench/*" "src/ffi.rs"
+          
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true 
